@@ -1,0 +1,11 @@
+{
+  "name": "家族タスクアラート",
+  "short_name": "タスクアラート",
+  "description": "家族のタスクを時刻通知・音声読み上げするアプリ",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1976d2",
+  "lang": "ja",
+  "icons": []
+}

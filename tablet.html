@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0a0e1a">
+  <link rel="manifest" href="manifest.json">
+  <title>タスクアラート</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif; background: #0a0e1a; color: #dde6f0; min-height: 100vh; }
+
+    /* スタートオーバーレイ */
+    #startup { position: fixed; inset: 0; background: #0a0e1a; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; }
+    #startup h1   { font-size: 2.2rem; color: #4fc3f7; }
+    #startup p    { color: #78909c; font-size: 1rem; }
+    #start-btn    { font-size: 1.4rem; padding: 18px 52px; background: #1565c0; color: white; border: none; border-radius: 16px; cursor: pointer; margin-top: 8px; }
+    #start-btn:active { background: #0d47a1; }
+
+    /* ヘッダー */
+    .header { padding: 18px 24px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: flex-end; }
+    .clock  { font-size: 3.2rem; font-weight: bold; color: #4fc3f7; letter-spacing: 0.06em; line-height: 1; }
+    .header-right { text-align: right; }
+    .date-disp  { font-size: 1.15rem; color: #dde6f0; }
+    .last-update { font-size: 0.82rem; color: #546e7a; margin-top: 4px; }
+
+    /* コンテンツ */
+    .content { padding: 20px 24px; }
+
+    .time-group  { margin-bottom: 28px; }
+    .time-label  { font-size: 1.35rem; font-weight: bold; color: #4fc3f7; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid rgba(79,195,247,0.25); }
+
+    .task-row { display: flex; align-items: center; gap: 14px; padding: 13px 16px; margin-bottom: 8px; background: rgba(255,255,255,0.04); border-radius: 10px; border-left: 3px solid #ff9800; }
+    .task-row.done { opacity: 0.38; border-left-color: #43a047; }
+    .task-person { font-size: 1.15rem; font-weight: bold; min-width: 72px; color: #90a4ae; }
+    .task-text   { font-size: 1.25rem; flex: 1; }
+    .task-row.done .task-text { text-decoration: line-through; }
+    .done-time   { font-size: 0.92rem; color: #43a047; white-space: nowrap; }
+
+    .empty { color: #546e7a; text-align: center; padding: 60px; font-size: 1.1rem; }
+
+    /* 音声ステータス */
+    #voice-status { position: fixed; bottom: 18px; right: 18px; background: rgba(0,0,0,0.55); color: #4fc3f7; padding: 8px 16px; border-radius: 20px; font-size: 0.88rem; display: none; }
+  </style>
+</head>
+<body>
+
+<!-- スタートオーバーレイ（音声有効化のため必須） -->
+<div id="startup">
+  <h1>家族タスクアラート</h1>
+  <p>タップして開始すると音声読み上げが有効になります</p>
+  <button id="start-btn" onclick="startApp()">スタート</button>
+</div>
+
+<!-- アプリ本体 -->
+<div id="app" style="display:none">
+  <div class="header">
+    <div class="clock" id="clock">--:--</div>
+    <div class="header-right">
+      <div class="date-disp"  id="date-disp"></div>
+      <div class="last-update" id="last-update"></div>
+    </div>
+  </div>
+  <div class="content" id="content">
+    <div class="empty">読み込み中...</div>
+  </div>
+</div>
+
+<div id="voice-status">🔊 音声待機中</div>
+
+<script>
+// ── 設定（ここを編集） ────────────────────────────────
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbwxriCh2yEhQTWCk12Zb108d-zpljG3qBi4MEplYeevfP9Bbn60_DieiMXmnP8sanLHxA/exec';
+const KEY     = 'family.task.alert-2026';
+// ────────────────────────────────────────────────────
+
+let allTasks = [];
+let completedTasks = [];
+let voiceReady = false;
+
+// 日付・時刻
+function getTodayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+function pad(n) { return String(n).padStart(2, '0'); }
+function formatDateJa(str) {
+  const days = ['日','月','火','水','木','金','土'];
+  const d = new Date(str + 'T00:00:00');
+  return `${d.getMonth()+1}月${d.getDate()}日（${days[d.getDay()]}）`;
+}
+
+// 時計
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// API
+async function fetchTasks(date) {
+  const res = await fetch(`${GAS_URL}?action=getTasks&date=${date}&key=${KEY}`);
+  return res.json();
+}
+async function fetchCompleted(date) {
+  const res = await fetch(`${GAS_URL}?action=getCompleted&date=${date}&key=${KEY}`);
+  return res.json();
+}
+
+// 描画
+function isDone(time, name, task) {
+  return completedTasks.some(c => c.time === time && c.name === name && c.task === task);
+}
+function doneAt(time, name, task) {
+  const c = completedTasks.find(c => c.time === time && c.name === name && c.task === task);
+  return c ? c.completedAt : '';
+}
+
+function render() {
+  const el = document.getElementById('content');
+  if (allTasks.length === 0) {
+    el.innerHTML = '<div class="empty">今日のタスクはありません</div>';
+    return;
+  }
+
+  // 時刻でグループ化
+  const byTime = {};
+  allTasks.forEach(g => {
+    if (!byTime[g.time]) byTime[g.time] = [];
+    g.tasks.forEach(task => byTime[g.time].push({ name: g.name, task }));
+  });
+
+  el.innerHTML = Object.entries(byTime)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([time, items]) => {
+      const rows = items.map(({ name, task }) => {
+        const done = isDone(time, name, task);
+        const at   = doneAt(time, name, task);
+        return `
+          <div class="task-row ${done ? 'done' : ''}">
+            <div class="task-person">${name}</div>
+            <div class="task-text">${task}</div>
+            ${done ? `<div class="done-time">✓ ${at}</div>` : ''}
+          </div>`;
+      }).join('');
+      return `<div class="time-group"><div class="time-label">${time}</div>${rows}</div>`;
+    }).join('');
+}
+
+async function loadData() {
+  const today = getTodayStr();
+  try {
+    [allTasks, completedTasks] = await Promise.all([fetchTasks(today), fetchCompleted(today)]);
+    render();
+    const now = new Date();
+    document.getElementById('last-update').textContent = `更新 ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  } catch(e) {
+    console.error('loadData error:', e);
+  }
+}
+
+// 音声読み上げ
+function buildText(name, tasks) {
+  if (tasks.length === 1) return `${name}ちゃん、${tasks[0]}をやりましょう。`;
+  const last = tasks[tasks.length - 1];
+  const rest = tasks.slice(0, -1);
+  return `${name}ちゃん、${rest.join('と')}と${last}をやりましょう。`;
+}
+
+function speakSequentially(texts) {
+  return new Promise(resolve => {
+    let idx = 0;
+    function next() {
+      if (idx >= texts.length) { resolve(); return; }
+      const u = new SpeechSynthesisUtterance(texts[idx++]);
+      u.lang = 'ja-JP';
+      u.rate = 0.9;
+      u.onend = () => setTimeout(next, 1000);
+      speechSynthesis.speak(u);
+    }
+    next();
+  });
+}
+
+async function checkVoice() {
+  if (!voiceReady) return;
+  const now = new Date();
+  const currentTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const sessionKey  = `announced_${getTodayStr()}_${currentTime}`;
+  if (sessionStorage.getItem(sessionKey)) return;
+
+  // 二重実行防止のため先にフラグを立てる
+  sessionStorage.setItem(sessionKey, 'true');
+
+  const today = getTodayStr();
+  const [tasks, completed] = await Promise.all([fetchTasks(today), fetchCompleted(today)]);
+
+  const toAnnounce = tasks
+    .filter(g => g.time === currentTime)
+    .map(g => ({
+      name: g.name,
+      tasks: g.tasks.filter(t => !completed.some(c => c.time === g.time && c.name === g.name && c.task === t))
+    }))
+    .filter(g => g.tasks.length > 0);
+
+  if (toAnnounce.length === 0) return;
+
+  const vs = document.getElementById('voice-status');
+  vs.textContent = `🔊 ${currentTime} のタスクを読み上げ中`;
+  await speakSequentially(toAnnounce.map(g => buildText(g.name, g.tasks)));
+  vs.textContent = '🔊 音声待機中';
+}
+
+// Wake Lock（画面スリープ防止）
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      await navigator.wakeLock.request('screen');
+    }
+  } catch(e) {}
+}
+
+// スタート
+async function startApp() {
+  document.getElementById('startup').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('voice-status').style.display = 'block';
+  document.getElementById('date-disp').textContent = formatDateJa(getTodayStr());
+  voiceReady = true;
+
+  await requestWakeLock();
+  await loadData();
+
+  setInterval(loadData, 30000);   // 30秒ごとに表示更新
+  setInterval(checkVoice, 60000); // 1分ごとに音声チェック
+  checkVoice();
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
+</script>
+</body>
+</html>

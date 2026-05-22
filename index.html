@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#1976d2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.json">
+  <title>家族タスク</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif; background: #f0f4f8; color: #333; }
+
+    /* 名前選択 */
+    #name-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 32px 24px; }
+    .name-title  { font-size: 1.5rem; font-weight: bold; margin-bottom: 8px; }
+    .name-sub    { font-size: 0.95rem; color: #666; margin-bottom: 36px; }
+    .name-grid   { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; width: 100%; max-width: 280px; }
+    .name-btn    { padding: 22px 8px; font-size: 1.3rem; font-weight: bold; border: none; border-radius: 14px; background: #1976d2; color: white; cursor: pointer; }
+    .name-btn:active { background: #1565c0; }
+
+    /* メイン */
+    #main-screen { display: none; }
+
+    .app-header  { background: #1976d2; color: white; padding: 14px 16px; position: sticky; top: 0; z-index: 10; }
+    .header-row  { display: flex; justify-content: space-between; align-items: center; }
+    .header-name { font-size: 1.15rem; font-weight: bold; }
+    .header-date { font-size: 0.82rem; opacity: 0.85; margin-top: 2px; }
+    .change-btn  { font-size: 0.78rem; background: rgba(255,255,255,0.22); border: none; color: white; padding: 5px 12px; border-radius: 12px; cursor: pointer; }
+
+    .section       { padding: 16px 14px; }
+    .section-title { font-size: 0.8rem; font-weight: bold; color: #78909c; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+
+    /* タスクカード */
+    .task-card { background: white; border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); display: flex; align-items: center; gap: 12px; }
+    .task-card.done { opacity: 0.52; }
+    .time-badge { background: #e3f2fd; color: #1565c0; font-size: 0.82rem; font-weight: bold; padding: 4px 9px; border-radius: 8px; white-space: nowrap; }
+    .task-card.done .time-badge { background: #f0f0f0; color: #aaa; }
+    .task-info  { flex: 1; }
+    .task-name  { font-size: 1.05rem; font-weight: 500; }
+    .task-done-time { font-size: 0.78rem; color: #888; margin-top: 3px; }
+    .complete-btn { background: #43a047; color: white; border: none; border-radius: 10px; padding: 10px 18px; font-size: 0.92rem; font-weight: bold; cursor: pointer; white-space: nowrap; }
+    .complete-btn:active { background: #388e3c; }
+    .done-icon { color: #43a047; font-size: 1.5rem; }
+
+    /* 家族レポート */
+    .family-item { background: white; border-radius: 10px; padding: 11px 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; font-size: 0.92rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+    .family-name { font-weight: bold; color: #333; min-width: 52px; }
+    .family-task { flex: 1; color: #555; }
+    .family-time { font-size: 0.78rem; color: #9e9e9e; white-space: nowrap; }
+
+    .empty-msg   { text-align: center; color: #aaa; padding: 36px 16px; font-size: 0.95rem; }
+    .loading     { text-align: center; color: #bbb; padding: 48px; }
+    .refresh-bar { text-align: center; padding: 10px; font-size: 0.72rem; color: #bbb; }
+  </style>
+</head>
+<body>
+
+<!-- ── 名前選択画面 ── -->
+<div id="name-screen">
+  <div class="name-title">だれですか？</div>
+  <div class="name-sub">名前をタップしてください</div>
+  <div class="name-grid" id="name-grid"></div>
+</div>
+
+<!-- ── メイン画面 ── -->
+<div id="main-screen">
+  <div class="app-header">
+    <div class="header-row">
+      <div>
+        <div class="header-name" id="header-name"></div>
+        <div class="header-date" id="header-date"></div>
+      </div>
+      <button class="change-btn" onclick="showNameScreen()">変更</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">今日のタスク</div>
+    <div id="my-tasks"><div class="loading">読み込み中...</div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">みんなの完了報告</div>
+    <div id="family-report"><div class="loading">読み込み中...</div></div>
+  </div>
+
+  <div class="refresh-bar" id="refresh-bar">—</div>
+</div>
+
+<script>
+// ── 設定（ここを編集） ────────────────────────────────
+const GAS_URL        = 'https://script.google.com/macros/s/AKfycbwxriCh2yEhQTWCk12Zb108d-zpljG3qBi4MEplYeevfP9Bbn60_DieiMXmnP8sanLHxA/exec';
+const KEY            = 'family.task.alert-2026';
+const FAMILY_MEMBERS = ['みの', 'ぷー', '母', '父']; // ← 家族の名前を入力
+// ────────────────────────────────────────────────────
+
+let myName = localStorage.getItem('myName');
+let allTasks = [];
+let completedTasks = [];
+let refreshTimer = null;
+
+// 日付
+function getTodayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+function pad(n) { return String(n).padStart(2, '0'); }
+function formatDateJa(str) {
+  const days = ['日','月','火','水','木','金','土'];
+  const d = new Date(str + 'T00:00:00');
+  return `${d.getMonth()+1}月${d.getDate()}日（${days[d.getDay()]}）`;
+}
+
+// API
+async function fetchTasks(date) {
+  const res = await fetch(`${GAS_URL}?action=getTasks&date=${date}&key=${KEY}`);
+  return res.json();
+}
+async function fetchCompleted(date) {
+  const res = await fetch(`${GAS_URL}?action=getCompleted&date=${date}&key=${KEY}`);
+  return res.json();
+}
+async function postComplete(data) {
+  await fetch(GAS_URL, {
+    method: 'POST',
+    body: JSON.stringify({ key: KEY, action: 'complete', ...data })
+  });
+}
+
+// 名前選択
+function showNameScreen() {
+  document.getElementById('name-screen').style.display = 'flex';
+  document.getElementById('main-screen').style.display = 'none';
+  clearInterval(refreshTimer);
+}
+function selectName(name) {
+  localStorage.setItem('myName', name);
+  myName = name;
+  showMain();
+}
+function renderNameGrid() {
+  document.getElementById('name-grid').innerHTML = FAMILY_MEMBERS
+    .map(n => `<button class="name-btn" onclick="selectName('${n}')">${n}</button>`)
+    .join('');
+}
+
+// メイン
+function showMain() {
+  document.getElementById('name-screen').style.display = 'none';
+  document.getElementById('main-screen').style.display = 'block';
+  document.getElementById('header-name').textContent = myName + 'さん';
+  document.getElementById('header-date').textContent = formatDateJa(getTodayStr());
+  loadData();
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(loadData, 30000);
+}
+
+async function loadData() {
+  const today = getTodayStr();
+  try {
+    [allTasks, completedTasks] = await Promise.all([fetchTasks(today), fetchCompleted(today)]);
+    renderMyTasks();
+    renderFamilyReport();
+    const now = new Date();
+    document.getElementById('refresh-bar').textContent = `最終更新 ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  } catch(e) {
+    document.getElementById('my-tasks').innerHTML = '<div class="empty-msg">読み込みに失敗しました</div>';
+  }
+}
+
+function isDone(time, name, task) {
+  return completedTasks.some(c => c.time === time && c.name === name && c.task === task);
+}
+function doneAt(time, name, task) {
+  const c = completedTasks.find(c => c.time === time && c.name === name && c.task === task);
+  return c ? c.completedAt : '';
+}
+
+function renderMyTasks() {
+  const mine = allTasks.filter(t => t.name === myName);
+  const el = document.getElementById('my-tasks');
+  if (mine.length === 0) {
+    el.innerHTML = '<div class="empty-msg">今日のタスクはありません</div>';
+    return;
+  }
+  el.innerHTML = mine.flatMap(group =>
+    group.tasks.map(task => {
+      const done = isDone(group.time, group.name, task);
+      const at   = doneAt(group.time, group.name, task);
+      return `
+        <div class="task-card ${done ? 'done' : ''}">
+          <div class="time-badge">${group.time}</div>
+          <div class="task-info">
+            <div class="task-name">${task}</div>
+            ${done ? `<div class="task-done-time">✓ ${at} に完了</div>` : ''}
+          </div>
+          ${done
+            ? '<div class="done-icon">✓</div>'
+            : `<button class="complete-btn" onclick="complete('${group.time}','${group.name}','${task}')">完了！</button>`}
+        </div>`;
+    })
+  ).join('');
+}
+
+function renderFamilyReport() {
+  const el = document.getElementById('family-report');
+  if (completedTasks.length === 0) {
+    el.innerHTML = '<div class="empty-msg">まだ誰も完了していません</div>';
+    return;
+  }
+  el.innerHTML = [...completedTasks]
+    .sort((a, b) => a.completedAt.localeCompare(b.completedAt))
+    .map(c => `
+      <div class="family-item">
+        <div class="family-name">${c.name}</div>
+        <div class="family-task">${c.task}</div>
+        <div class="family-time">${c.completedAt}</div>
+      </div>`)
+    .join('');
+}
+
+async function complete(time, name, task) {
+  const today = getTodayStr();
+  try {
+    await postComplete({ date: today, time, name, task });
+    await loadData();
+  } catch(e) {
+    alert('送信に失敗しました。もう一度試してください。');
+  }
+}
+
+// 初期化
+renderNameGrid();
+if (myName) {
+  showMain();
+} else {
+  showNameScreen();
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
+</script>
+</body>
+</html>
