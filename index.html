@@ -204,6 +204,11 @@ function renderMyTasks() {
   ).join('');
 }
 
+function formatMMDD(dateStr) {
+  const [, m, d] = dateStr.split('-');
+  return `${parseInt(m)}/${parseInt(d)}`;
+}
+
 function renderFamilyReport() {
   const el = document.getElementById('family-report');
   if (completedTasks.length === 0) {
@@ -212,12 +217,15 @@ function renderFamilyReport() {
   }
   el.innerHTML = [...completedTasks]
     .sort((a, b) => a.completedAt.localeCompare(b.completedAt))
-    .map(c => `
-      <div class="family-item">
-        <div class="family-name">${c.name}</div>
-        <div class="family-task">${c.task}</div>
-        <div class="family-time">${c.completedAt}</div>
-      </div>`)
+    .map(c => {
+      const dateLabel = c.date ? `${formatMMDD(c.date)},${c.completedAt}` : c.completedAt;
+      return `
+        <div class="family-item">
+          <div class="family-name">${c.name}</div>
+          <div class="family-task">${c.task}</div>
+          <div class="family-time">${dateLabel}</div>
+        </div>`;
+    })
     .join('');
 }
 
