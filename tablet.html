@@ -161,26 +161,39 @@ async function loadData() {
 }
 
 // 音声読み上げ
-function buildText(name, tasks) {
-  if (tasks.length === 1) return `${name}ちゃん、${tasks[0]}をやりましょう。`;
-  const last = tasks[tasks.length - 1];
-  const rest = tasks.slice(0, -1);
-  return `${name}ちゃん、${rest.join('と')}と${last}をやりましょう。`;
+function buildAnnouncement(currentTime, taskGroups) {
+  const hour = parseInt(currentTime.split(':')[0]);
+  const opening = `${hour}時になりました。`;
+  const parts = taskGroups.map((g, i) => {
+    const taskStr = g.tasks.join('と');
+    const isLast  = i === taskGroups.length - 1;
+    return isLast
+      ? `${g.name}ちゃんは${taskStr}をしましょう。`
+      : `${g.name}ちゃんは${taskStr}を、`;
+  });
+  return opening + parts.join('');
 }
 
-function speakSequentially(texts) {
+function speak(text) {
   return new Promise(resolve => {
-    let idx = 0;
-    function next() {
-      if (idx >= texts.length) { resolve(); return; }
-      const u = new SpeechSynthesisUtterance(texts[idx++]);
-      u.lang = 'ja-JP';
-      u.rate = 0.9;
-      u.onend = () => setTimeout(next, 1000);
-      speechSynthesis.speak(u);
-    }
-    next();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ja-JP';
+    u.rate = 0.9;
+    u.onend = resolve;
+    speechSynthesis.speak(u);
   });
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function speakAnnouncement(text) {
+  await speak(text);
+  await wait(800);
+  await speak('繰り返します。');
+  await wait(500);
+  await speak(text);
 }
 
 async function checkVoice() {
@@ -206,9 +219,10 @@ async function checkVoice() {
 
   if (toAnnounce.length === 0) return;
 
+  const text = buildAnnouncement(currentTime, toAnnounce);
   const vs = document.getElementById('voice-status');
   vs.textContent = `🔊 ${currentTime} のタスクを読み上げ中`;
-  await speakSequentially(toAnnounce.map(g => buildText(g.name, g.tasks)));
+  await speakAnnouncement(text);
   vs.textContent = '🔊 音声待機中';
 }
 
