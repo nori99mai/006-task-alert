@@ -67,6 +67,9 @@
 </div>
 
 <div id="voice-status">🔊 音声待機中</div>
+<div style="position:fixed;bottom:18px;left:18px">
+  <button onclick="testVoice()" style="background:#e53935;color:white;border:none;border-radius:20px;padding:8px 18px;font-size:0.85rem;cursor:pointer">🔊 テスト読み上げ</button>
+</div>
 
 <script>
 // ── 設定（ここを編集） ────────────────────────────────
@@ -224,6 +227,15 @@ async function checkVoice() {
   vs.textContent = `🔊 ${currentTime} のタスクを読み上げ中`;
   await speakAnnouncement(text);
   vs.textContent = '🔊 音声待機中';
+}
+
+async function testVoice() {
+  if (!voiceReady) { alert('スタートボタンを先に押してください'); return; }
+  const today = getTodayStr();
+  const [tasks] = await Promise.all([fetchTasks(today), fetchCompleted(today)]);
+  if (tasks.length === 0) { alert('タスクが登録されていません'); return; }
+  const text = buildAnnouncement('テスト', tasks);
+  await speakAnnouncement(text);
 }
 
 // Wake Lock（画面スリープ防止）
